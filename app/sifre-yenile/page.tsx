@@ -1,2 +1,2 @@
 import { ResetPasswordForm } from "@/components/auth-forms";
-export default function ResetPage() { return <div className="narrow-page"><span className="kicker dark">YENİ PAROLA</span><h1>Güçlü bir parola belirle</h1><ResetPasswordForm/></div>; }
+export default async function ResetPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) { const { token = "" } = await searchParams; return <div className="narrow-page"><span className="kicker dark">YENİ PAROLA</span><h1>Güçlü bir parola belirle</h1>{token ? <ResetPasswordForm token={token}/> : <p className="form-message">Geçerli bir sıfırlama bağlantısı gerekli.</p>}</div>; }

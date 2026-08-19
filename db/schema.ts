@@ -20,6 +20,14 @@ export const schemaStatements = [
     created_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at TEXT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS categories (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -166,6 +174,10 @@ export const schemaStatements = [
     fixed_fee_kurus INTEGER NOT NULL DEFAULT 0,
     minimum_fee_kurus INTEGER NOT NULL DEFAULT 0,
     maximum_fee_kurus INTEGER,
+    dispute_period_hours INTEGER NOT NULL DEFAULT 48,
+    seller_shipping_deadline_hours INTEGER NOT NULL DEFAULT 72,
+    buyer_confirmation_period_hours INTEGER NOT NULL DEFAULT 48,
+    prohibited_categories TEXT NOT NULL DEFAULT '[]',
     maintenance_mode INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
   )`,
@@ -191,6 +203,7 @@ export const schemaStatements = [
     updated_at TEXT NOT NULL
   )`,
   "CREATE INDEX IF NOT EXISTS idx_sessions_token_expires ON sessions(token_hash, expires_at)",
+  "CREATE INDEX IF NOT EXISTS idx_password_reset_token ON password_reset_tokens(token_hash, expires_at)",
   "CREATE INDEX IF NOT EXISTS idx_products_status_created ON products(status, created_at DESC)",
   "CREATE INDEX IF NOT EXISTS idx_products_seller ON products(seller_id, created_at DESC)",
   "CREATE INDEX IF NOT EXISTS idx_seller_profiles_name ON seller_profiles(display_name)",
