@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
-import { ProductAdminActions, SettingsForm, UserAdminActions } from "@/components/admin-controls";
+import Link from "next/link";
+import { DisputeAdminActions, LegalPublishForm, OrderAdminActions, ProductAdminActions, SettingsForm, UserAdminActions } from "@/components/admin-controls";
 import { requireAdmin } from "@/lib/auth";
 import { formatMoney } from "@/lib/demo";
 import { database, ensureDatabase } from "@/lib/database";
 import { getPersistentDashboardMetrics } from "@/lib/admin-data";
 
-const allowed = new Set(["users", "products", "orders", "disputes", "finance", "settings", "legal", "audit"]);
+const allowed = new Set(["users", "shops", "products", "orders", "disputes", "finance", "settings", "legal", "audit"]);
 
 export default async function AdminSectionPage({ params }: { params: Promise<{ section: string }> }) {
   const { section } = await params;
@@ -14,7 +15,11 @@ export default async function AdminSectionPage({ params }: { params: Promise<{ s
   await ensureDatabase();
   if (section === "users") {
     const users = (await database().prepare("SELECT id,email,first_name,last_name,role,status,created_at FROM users ORDER BY created_at DESC LIMIT 100").all<{ id: string; email: string; first_name: string; last_name: string; role: string; status: string; created_at: string }>()).results;
-    return <AdminTable title="Kullanıcılar" headers={["Kullanıcı", "Rol", "Durum", "Kayıt", "Aksiyon"]}>{users.map((user) => <tr key={user.id}><td><b>{user.email}</b><small>{user.first_name} {user.last_name}</small></td><td>{user.role}</td><td>{user.status}</td><td>{new Date(user.created_at).toLocaleDateString("tr-TR")}</td><td><UserAdminActions userId={user.id}/></td></tr>)}</AdminTable>;
+    return <AdminTable title="Kullanıcılar" headers={["Kullanıcı", "Rol", "Durum", "Kayıt", "Aksiyon"]}>{users.map((user) => <tr key={user.id}><td><b>{user.email}</b><small>{user.first_name} {user.last_name}</small><Link href={`/mesajlar?user=${user.id}`}>Mesaj gönder</Link></td><td>{user.role}</td><td>{user.status}</td><td>{new Date(user.created_at).toLocaleDateString("tr-TR")}</td><td><UserAdminActions userId={user.id}/></td></tr>)}</AdminTable>;
+  }
+  if (section === "shops") {
+    const shops = (await database().prepare("SELECT sp.user_id,sp.display_name,sp.seller_type,sp.rating,sp.completed_sales,sp.verification_status,u.email,u.status,(SELECT COUNT(*) FROM products p WHERE p.seller_id = sp.user_id) AS product_count FROM seller_profiles sp JOIN users u ON u.id = sp.user_id ORDER BY sp.display_name LIMIT 100").all<{ user_id: string; display_name: string; seller_type: string; rating: number; completed_sales: number; verification_status: string; email: string; status: string; product_count: number }>()).results;
+    return <AdminTable title="Dükkanlar ve satıcılar" headers={["Dükkan", "Tür", "İlan", "Puan", "Durum", "İletişim"]}>{shops.map((shop) => <tr key={shop.user_id}><td><b>{shop.display_name}</b><small>{shop.email}</small></td><td>{shop.seller_type}</td><td>{shop.product_count}</td><td>{shop.rating.toFixed(1)}</td><td>{shop.status} · {shop.verification_status}</td><td><Link href={`/mesajlar?user=${shop.user_id}`}>Mesaj gönder</Link></td></tr>)}</AdminTable>;
   }
   if (section === "products") {
     const products = (await database().prepare("SELECT p.id,p.title,p.price_kurus,p.status,p.location,p.created_at,u.email FROM products p JOIN users u ON u.id = p.seller_id ORDER BY p.created_at DESC LIMIT 100").all<{ id: string; title: string; price_kurus: number; status: string; location: string; created_at: string; email: string }>()).results;
@@ -22,7 +27,11 @@ export default async function AdminSectionPage({ params }: { params: Promise<{ s
   }
   if (section === "orders") {
     const orders = (await database().prepare("SELECT id,product_title,product_price_kurus,order_status,payment_status,shipping_status,created_at FROM orders ORDER BY created_at DESC LIMIT 100").all<{ id: string; product_title: string; product_price_kurus: number; order_status: string; payment_status: string; shipping_status: string; created_at: string }>()).results;
-    return <AdminTable title="Siparişler" headers={["Sipariş", "Tutar", "Durum", "Ödeme", "Kargo"]}>{orders.map((order) => <tr key={order.id}><td><b>{order.product_title}</b><small>{order.id}</small></td><td>{formatMoney(order.product_price_kurus)}</td><td>{order.order_status}</td><td>{order.payment_status}</td><td>{order.shipping_status}</td></tr>)}</AdminTable>;
+    return <AdminTable title="Siparişler" headers={["Sipariş", "Tutar", "Durum", "Ödeme", "Kargo", "Aksiyon"]}>{orders.map((order) => <tr key={order.id}><td><b>{order.product_title}</b><small>{order.id}</small></td><td>{formatMoney(order.product_price_kurus)}</td><td>{order.order_status}</td><td>{order.payment_status}</td><td>{order.shipping_status}</td><td><OrderAdminActions orderId={order.id} canMarkDelivered={order.order_status === "SHIPPED"}/></td></tr>)}</AdminTable>;
+  }
+  if (section === "disputes") {
+    const disputes = (await database().prepare("SELECT d.id,d.reason,d.description,d.status,d.created_at,o.product_title,u.email FROM disputes d JOIN orders o ON o.id = d.order_id JOIN users u ON u.id = d.opened_by ORDER BY d.created_at DESC LIMIT 100").all<{ id: string; reason: string; description: string; status: string; created_at: string; product_title: string; email: string }>()).results;
+    return <AdminTable title="Uyuşmazlıklar" headers={["Sipariş", "Açan", "Neden", "Durum", "Aksiyon"]}>{disputes.map((dispute) => <tr key={dispute.id}><td><b>{dispute.product_title}</b><small>{dispute.description}</small></td><td>{dispute.email}</td><td>{dispute.reason}</td><td>{dispute.status}</td><td><DisputeAdminActions disputeId={dispute.id}/></td></tr>)}</AdminTable>;
   }
   if (section === "finance") {
     const metrics = await getPersistentDashboardMetrics();
@@ -35,7 +44,7 @@ export default async function AdminSectionPage({ params }: { params: Promise<{ s
   }
   if (section === "legal") {
     const documents = (await database().prepare("SELECT id,type,version,title,active,published_at FROM legal_documents ORDER BY published_at DESC").all<{ id: string; type: string; version: string; title: string; active: number; published_at: string }>()).results;
-    return <><div className="admin-heading"><h1>Hukuki metinler</h1><p>Mevcut sürümler production öncesinde hukuk danışmanı tarafından doğrulanmalıdır.</p></div><div className="admin-list">{documents.map((document) => <article key={document.id}><b>{document.title}</b><span>{document.type} · v{document.version} · {document.active ? "Aktif" : "Arşiv"}</span></article>)}</div></>;
+    return <><div className="admin-heading"><h1>Hukuki metinler</h1><p>Mevcut sürümler production öncesinde hukuk danışmanı tarafından doğrulanmalıdır.</p></div><LegalPublishForm/><div className="admin-list">{documents.map((document) => <article key={document.id}><b>{document.title}</b><span>{document.type} · v{document.version} · {document.active ? "Aktif" : "Arşiv"}</span></article>)}</div></>;
   }
   if (section === "audit") {
     const logs = (await database().prepare("SELECT id,actor_id,action,target_type,target_id,created_at FROM audit_logs ORDER BY created_at DESC LIMIT 200").all<{ id: string; actor_id: string | null; action: string; target_type: string; target_id: string; created_at: string }>()).results;

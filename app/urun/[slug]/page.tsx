@@ -8,11 +8,11 @@ import { database, ensureDatabase } from "@/lib/database";
 export const dynamic = "force-dynamic";
 
 async function loadProduct(slug: string): Promise<CatalogProduct & { sellerId: string }> {
-  const demo = demoProducts.find((product) => product.slug === slug);
-  if (demo) return { ...demo, sellerId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
   const product = await getPersistentProduct(slug).catch(() => null);
-  if (!product) notFound();
-  return product;
+  if (product) return product;
+  const demo = demoProducts.find((item) => item.slug === slug);
+  if (demo) return { ...demo, sellerId: "a1111111-1111-4111-8111-111111111111" };
+  notFound();
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {

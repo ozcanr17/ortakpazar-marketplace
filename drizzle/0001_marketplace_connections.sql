@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS seller_profiles (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,display_name TEXT NOT NULL,seller_type TEXT NOT NULL DEFAULT 'INDIVIDUAL',rating REAL NOT NULL DEFAULT 0,completed_sales INTEGER NOT NULL DEFAULT 0,verification_status TEXT NOT NULL DEFAULT 'UNVERIFIED',created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS product_verifications (product_id TEXT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,challenge_code TEXT,requested_at TEXT,submitted_at TEXT,evidence_image_key TEXT,status TEXT NOT NULL DEFAULT 'NOT_REQUIRED',reviewed_by TEXT REFERENCES users(id),review_note TEXT);
+CREATE TABLE IF NOT EXISTS compliance_items (id TEXT PRIMARY KEY,title TEXT NOT NULL UNIQUE,status TEXT NOT NULL DEFAULT 'NOT_REVIEWED',owner TEXT,note TEXT,evidence_url TEXT,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS dispute_evidence (id TEXT PRIMARY KEY,dispute_id TEXT NOT NULL REFERENCES disputes(id) ON DELETE CASCADE,submitted_by TEXT NOT NULL REFERENCES users(id),storage_key TEXT NOT NULL,mime_type TEXT NOT NULL,description TEXT,created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_seller_profiles_name ON seller_profiles(display_name);
+CREATE INDEX IF NOT EXISTS idx_dispute_evidence_dispute ON dispute_evidence(dispute_id,created_at DESC);

@@ -26,6 +26,16 @@ export const schemaStatements = [
     slug TEXT NOT NULL UNIQUE,
     active INTEGER NOT NULL DEFAULT 1
   )`,
+  `CREATE TABLE IF NOT EXISTS seller_profiles (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    display_name TEXT NOT NULL,
+    seller_type TEXT NOT NULL DEFAULT 'INDIVIDUAL' CHECK (seller_type IN ('INDIVIDUAL','BUSINESS')),
+    rating REAL NOT NULL DEFAULT 0,
+    completed_sales INTEGER NOT NULL DEFAULT 0,
+    verification_status TEXT NOT NULL DEFAULT 'UNVERIFIED',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY,
     seller_id TEXT NOT NULL REFERENCES users(id),
@@ -47,6 +57,16 @@ export const schemaStatements = [
     product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL,
     PRIMARY KEY (user_id, product_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS product_verifications (
+    product_id TEXT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+    challenge_code TEXT,
+    requested_at TEXT,
+    submitted_at TEXT,
+    evidence_image_key TEXT,
+    status TEXT NOT NULL DEFAULT 'NOT_REQUIRED',
+    reviewed_by TEXT REFERENCES users(id),
+    review_note TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
@@ -82,6 +102,15 @@ export const schemaStatements = [
     reason TEXT NOT NULL,
     description TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'OPEN',
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS dispute_evidence (
+    id TEXT PRIMARY KEY,
+    dispute_id TEXT NOT NULL REFERENCES disputes(id) ON DELETE CASCADE,
+    submitted_by TEXT NOT NULL REFERENCES users(id),
+    storage_key TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    description TEXT,
     created_at TEXT NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS data_requests (
@@ -152,11 +181,22 @@ export const schemaStatements = [
     user_agent TEXT,
     created_at TEXT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS compliance_items (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'NOT_REVIEWED',
+    owner TEXT,
+    note TEXT,
+    evidence_url TEXT,
+    updated_at TEXT NOT NULL
+  )`,
   "CREATE INDEX IF NOT EXISTS idx_sessions_token_expires ON sessions(token_hash, expires_at)",
   "CREATE INDEX IF NOT EXISTS idx_products_status_created ON products(status, created_at DESC)",
   "CREATE INDEX IF NOT EXISTS idx_products_seller ON products(seller_id, created_at DESC)",
+  "CREATE INDEX IF NOT EXISTS idx_seller_profiles_name ON seller_profiles(display_name)",
   "CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders(buyer_id, created_at DESC)",
   "CREATE INDEX IF NOT EXISTS idx_orders_seller ON orders(seller_id, created_at DESC)",
   "CREATE INDEX IF NOT EXISTS idx_messages_participants ON messages(receiver_id, sender_id, created_at DESC)",
+  "CREATE INDEX IF NOT EXISTS idx_dispute_evidence_dispute ON dispute_evidence(dispute_id, created_at DESC)",
   "CREATE INDEX IF NOT EXISTS idx_consents_user ON cookie_consents(user_id, created_at DESC)",
 ] as const;

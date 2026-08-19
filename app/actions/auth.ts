@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { assertSameOrigin } from "@/lib/security/csrf";
 import { sanitizeText } from "@/lib/security/text";
-import { database, ensureDatabase } from "@/lib/database";
+import { database, ensureDatabase, initialAdminCredentials } from "@/lib/database";
 import { createSession, destroyCurrentSession, ensureInitialAdmin } from "@/lib/auth";
 import { getRequestContext } from "@/lib/request";
 import { hashPassword, verifyPassword } from "@/lib/password";
@@ -37,13 +37,16 @@ export async function registerAction(input: z.input<typeof registerSchema>): Pro
   } catch { return { ok: false, message: "Kayıt tamamlanamadı" }; }
 }
 
-const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1).max(128), returnTo: z.string().startsWith("/").refine((value) => !value.startsWith("//")).default("/profil"), remember: z.boolean().optional() });
+const loginSchema = z.object({ email: z.string().trim().min(1).max(320), password: z.string().min(1).max(128), returnTo: z.string().startsWith("/").refine((value) => !value.startsWith("//")).default("/profil"), remember: z.boolean().optional() });
 export async function loginAction(input: z.input<typeof loginSchema>): Promise<AuthActionState> {
   await assertSameOrigin();
   await ensureInitialAdmin();
   const parsed = loginSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "E-posta veya parola hatalı" };
-  const row = await database().prepare("SELECT id,password_hash,password_salt,status FROM users WHERE email = ? COLLATE NOCASE LIMIT 1").bind(parsed.data.email.trim().toLowerCase()).first<{ id: string; password_hash: string; password_salt: string; status: string }>();
+  const identifier = parsed.data.email.toLowerCase();
+  const email = identifier === "admin" ? initialAdminCredentials()?.email : z.string().email().safeParse(identifier).data;
+  if (!email) return { ok: false, message: "E-posta veya parola hatalı" };
+  const row = await database().prepare("SELECT id,password_hash,password_salt,status FROM users WHERE email = ? COLLATE NOCASE LIMIT 1").bind(email).first<{ id: string; password_hash: string; password_salt: string; status: string }>();
   if (!row || row.status !== "ACTIVE" || !(await verifyPassword(parsed.data.password, row.password_salt, row.password_hash))) return { ok: false, message: "E-posta veya parola hatalı" };
   await createSession(row.id, parsed.data.remember ?? true);
   return { ok: true, message: "Giriş başarılı", redirectTo: parsed.data.returnTo };

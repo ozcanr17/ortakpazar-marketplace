@@ -3,7 +3,7 @@ import { database, ensureDatabase, uploads } from "@/lib/database";
 import type { CatalogProduct } from "@/lib/demo";
 import { createStoragePath, validateImage } from "@/lib/security/upload";
 
-interface ProductRow { id: string; seller_id: string; title: string; slug: string; description: string; category: string; category_slug: string; condition: CatalogProduct["condition"]; price_kurus: number; location: string; image_key: string | null; first_name: string; last_name: string }
+interface ProductRow { id: string; seller_id: string; title: string; slug: string; description: string; category: string; category_slug: string; condition: CatalogProduct["condition"]; price_kurus: number; location: string; image_key: string | null; first_name: string; last_name: string; display_name: string | null; rating: number | null; verification_status: string | null }
 
 const mapProduct = (row: ProductRow): CatalogProduct & { sellerId: string } => ({
   id: row.id,
@@ -16,13 +16,13 @@ const mapProduct = (row: ProductRow): CatalogProduct & { sellerId: string } => (
   condition: row.condition,
   priceKurus: row.price_kurus,
   location: row.location,
-  image: row.image_key ? `/api/uploads/${encodeURIComponent(row.image_key)}` : "/globe.svg",
-  seller: `${row.first_name} ${row.last_name}`,
-  rating: 5,
-  verified: false,
+  image: row.image_key?.startsWith("https://") ? row.image_key : row.image_key ? `/api/uploads/${encodeURIComponent(row.image_key)}` : "/globe.svg",
+  seller: row.display_name ?? `${row.first_name} ${row.last_name}`,
+  rating: row.rating ?? 0,
+  verified: row.verification_status === "VERIFIED",
 });
 
-const selectProducts = `SELECT p.id,p.seller_id,p.title,p.slug,p.description,p.condition,p.price_kurus,p.location,p.image_key,c.name AS category,c.slug AS category_slug,u.first_name,u.last_name FROM products p JOIN categories c ON c.id = p.category_id JOIN users u ON u.id = p.seller_id`;
+const selectProducts = `SELECT p.id,p.seller_id,p.title,p.slug,p.description,p.condition,p.price_kurus,p.location,p.image_key,c.name AS category,c.slug AS category_slug,u.first_name,u.last_name,sp.display_name,sp.rating,sp.verification_status FROM products p JOIN categories c ON c.id = p.category_id JOIN users u ON u.id = p.seller_id LEFT JOIN seller_profiles sp ON sp.user_id = p.seller_id`;
 
 export async function listPersistentProducts(filters: { query?: string; category?: string; condition?: string } = {}): Promise<Array<CatalogProduct & { sellerId: string }>> {
   await ensureDatabase();
@@ -58,8 +58,10 @@ export async function createPersistentProduct(user: AppUser, input: { title: str
   const now = new Date().toISOString();
   const slug = `${slugify(input.title)}-${id.slice(0, 8)}`;
   try {
-    await database().prepare("INSERT INTO products (id,seller_id,title,slug,description,category_id,condition,price_kurus,status,location,image_key,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'PENDING_REVIEW',?,?,?,?)")
-      .bind(id, user.id, input.title, slug, input.description, input.categoryId, input.condition, input.priceKurus, input.location, keys[0], now, now).run();
+    await database().batch([
+      database().prepare("INSERT OR IGNORE INTO seller_profiles (user_id,display_name,seller_type,rating,completed_sales,verification_status,created_at,updated_at) VALUES (?,?, 'INDIVIDUAL',0,0,'UNVERIFIED',?,?)").bind(user.id, `${user.firstName} ${user.lastName}`, now, now),
+      database().prepare("INSERT INTO products (id,seller_id,title,slug,description,category_id,condition,price_kurus,status,location,image_key,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'PENDING_REVIEW',?,?,?,?)").bind(id, user.id, input.title, slug, input.description, input.categoryId, input.condition, input.priceKurus, input.location, keys[0], now, now),
+    ]);
     return id;
   } catch (error) {
     await Promise.all(keys.map((key) => uploads().delete(key)));

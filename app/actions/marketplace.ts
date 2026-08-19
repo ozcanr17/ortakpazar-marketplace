@@ -7,11 +7,10 @@ import { DomainError } from "@/lib/domain/errors";
 import { assertSameOrigin } from "@/lib/security/csrf";
 import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { sanitizeMessage, sanitizeText } from "@/lib/security/text";
-import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { getRequestContext } from "@/lib/request";
 import { createStoragePath, validateImage } from "@/lib/security/upload";
 import { assertProductOwner } from "@/lib/marketplace/products";
-import { database, ensureDatabase } from "@/lib/database";
+import { database, ensureDatabase, uploads } from "@/lib/database";
 import { createPersistentProduct, togglePersistentFavorite } from "@/lib/persistent-marketplace";
 import { confirmPersistentDelivery, createPersistentOrder, openPersistentDispute, shipPersistentOrder } from "@/lib/persistent-orders";
 
@@ -62,7 +61,7 @@ export async function sendMessageAction(input: { receiverId: string; orderId?: s
   try {
     await assertSameOrigin();
     const user = await requireUser("/mesajlar");
-    const parsed = z.object({ receiverId: z.string().uuid(), orderId: z.string().uuid().optional(), productId: z.string().uuid().optional(), body: z.string().min(1).max(2000) }).refine((value) => value.orderId || value.productId).parse(input);
+    const parsed = z.object({ receiverId: z.string().uuid(), orderId: z.string().uuid().optional(), productId: z.string().uuid().optional(), body: z.string().min(1).max(2000) }).parse(input);
     if (parsed.receiverId === user.id) throw new DomainError("INVALID_MESSAGE", "Kendinize mesaj gönderemezsiniz");
     let allowed = false;
     if (parsed.orderId) {
@@ -70,7 +69,15 @@ export async function sendMessageAction(input: { receiverId: string; orderId?: s
       allowed = Boolean(data && [data.buyer_id, data.seller_id].includes(user.id) && [data.buyer_id, data.seller_id].includes(parsed.receiverId));
     } else if (parsed.productId) {
       const data = await database().prepare("SELECT seller_id FROM products WHERE id = ?").bind(parsed.productId).first<{ seller_id: string }>();
-      allowed = Boolean(data && (data.seller_id === parsed.receiverId || data.seller_id === user.id));
+      if (data?.seller_id === parsed.receiverId) allowed = true;
+      else if (data?.seller_id === user.id) {
+        const relation = await database().prepare("SELECT 1 AS found FROM messages WHERE product_id = ? AND ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)) UNION SELECT 1 AS found FROM orders WHERE product_id = ? AND seller_id = ? AND buyer_id = ? LIMIT 1")
+          .bind(parsed.productId, user.id, parsed.receiverId, parsed.receiverId, user.id, parsed.productId, user.id, parsed.receiverId).first();
+        allowed = Boolean(relation);
+      }
+    } else {
+      const receiver = await database().prepare("SELECT role FROM users WHERE id = ? AND status = 'ACTIVE'").bind(parsed.receiverId).first<{ role: string }>();
+      allowed = Boolean(receiver && (user.role !== "USER" || receiver.role !== "USER"));
     }
     if (!allowed) throw new DomainError("MESSAGE_FORBIDDEN", "Bu bağlamda mesaj gönderemezsiniz");
     await enforceRateLimit(`message:${user.id}`, 30, 300, 900);
@@ -117,15 +124,13 @@ export async function submitProductVerificationAction(productId: string, file: F
     await assertSameOrigin();
     const user = await requireUser("/profil");
     await assertProductOwner(user, productId);
-    const client = createSupabaseAdminClient();
-    const { data: verification } = await client.from("product_verifications").select("status,challenge_code").eq("product_id", productId).single();
+    const verification = await database().prepare("SELECT status,challenge_code FROM product_verifications WHERE product_id = ?").bind(productId).first<{ status: string; challenge_code: string | null }>();
     if (!verification || verification.status !== "REQUESTED" || !verification.challenge_code) throw new DomainError("VERIFICATION_NOT_REQUESTED", "Bu ilan için doğrulama talebi bulunmuyor");
     const validated = await validateImage(file);
     const path = createStoragePath(user.id, validated.extension);
-    const { error: uploadError } = await client.storage.from("private-evidence").upload(path, validated.bytes, { contentType: file.type, upsert: false });
-    if (uploadError) throw new DomainError("UPLOAD_FAILED", "Kanıt görseli yüklenemedi");
-    const { error } = await client.from("product_verifications").update({ status: "SUBMITTED", submitted_at: new Date().toISOString(), evidence_image_path: path }).eq("product_id", productId).eq("status", "REQUESTED");
-    if (error) { await client.storage.from("private-evidence").remove([path]); throw new Error("Doğrulama gönderilemedi"); }
+    await uploads().put(path, validated.bytes, { httpMetadata: { contentType: file.type } });
+    const result = await database().prepare("UPDATE product_verifications SET status = 'SUBMITTED', submitted_at = ?, evidence_image_key = ? WHERE product_id = ? AND status = 'REQUESTED'").bind(new Date().toISOString(), path, productId).run();
+    if (!result.meta.changes) { await uploads().delete(path); throw new Error("Doğrulama gönderilemedi"); }
     return { ok: true, message: `Kanıt gönderildi. Fotoğrafta ${verification.challenge_code} kodunun açıkça göründüğünden emin olun.` };
   } catch (error) { return errorState(error); }
 }
@@ -134,15 +139,11 @@ export async function addDisputeEvidenceAction(disputeId: string, file: File, de
   try {
     await assertSameOrigin();
     const user = await requireUser("/siparisler");
-    const client = createSupabaseAdminClient();
-    const { data: dispute } = await client.from("disputes").select("order_id,status,order:orders(buyer_id,seller_id)").eq("id", disputeId).single();
-    const order = dispute?.order?.[0];
-    if (!dispute || !order || ![order.buyer_id, order.seller_id].includes(user.id) || ["CLOSED", "RESOLVED_BUYER", "RESOLVED_SELLER"].includes(dispute.status)) throw new DomainError("EVIDENCE_FORBIDDEN", "Bu uyuşmazlığa kanıt ekleyemezsiniz");
+    const dispute = await database().prepare("SELECT d.status,o.buyer_id,o.seller_id FROM disputes d JOIN orders o ON o.id = d.order_id WHERE d.id = ?").bind(disputeId).first<{ status: string; buyer_id: string; seller_id: string }>();
+    if (!dispute || ![dispute.buyer_id, dispute.seller_id].includes(user.id) || ["CLOSED", "RESOLVED_BUYER", "RESOLVED_SELLER"].includes(dispute.status)) throw new DomainError("EVIDENCE_FORBIDDEN", "Bu uyuşmazlığa kanıt ekleyemezsiniz");
     const validated = await validateImage(file); const path = createStoragePath(user.id, validated.extension);
-    const { error: uploadError } = await client.storage.from("private-evidence").upload(path, validated.bytes, { contentType: file.type, upsert: false });
-    if (uploadError) throw new Error("Kanıt yüklenemedi");
-    const { error } = await client.from("dispute_evidence").insert({ dispute_id: disputeId, submitted_by: user.id, storage_path: path, mime_type: file.type, description: description ? sanitizeText(description, 500) : null });
-    if (error) { await client.storage.from("private-evidence").remove([path]); throw new Error("Kanıt kaydedilemedi"); }
+    await uploads().put(path, validated.bytes, { httpMetadata: { contentType: file.type } });
+    try { await database().prepare("INSERT INTO dispute_evidence (id,dispute_id,submitted_by,storage_key,mime_type,description,created_at) VALUES (?,?,?,?,?,?,?)").bind(crypto.randomUUID(), disputeId, user.id, path, file.type, description ? sanitizeText(description, 500) : null, new Date().toISOString()).run(); } catch (error) { await uploads().delete(path); throw error; }
     return { ok: true, message: "Kanıt uyuşmazlığa eklendi" };
   } catch (error) { return errorState(error); }
 }
