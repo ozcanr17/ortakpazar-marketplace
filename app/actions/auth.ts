@@ -10,7 +10,7 @@ import { getRequestContext } from "@/lib/request";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { passwordSchema, registerSchema } from "@/lib/domain/auth-validation";
 
-export interface AuthActionState { ok: boolean; message: string; fieldErrors?: Record<string, string[]> }
+export interface AuthActionState { ok: boolean; message: string; redirectTo?: string; fieldErrors?: Record<string, string[]> }
 
 export async function registerAction(input: z.input<typeof registerSchema>): Promise<AuthActionState> {
   await assertSameOrigin();
@@ -37,7 +37,7 @@ export async function registerAction(input: z.input<typeof registerSchema>): Pro
   } catch { return { ok: false, message: "Kayıt tamamlanamadı" }; }
 }
 
-const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1).max(128), returnTo: z.string().startsWith("/").default("/profil"), remember: z.boolean().optional() });
+const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1).max(128), returnTo: z.string().startsWith("/").refine((value) => !value.startsWith("//")).default("/profil"), remember: z.boolean().optional() });
 export async function loginAction(input: z.input<typeof loginSchema>): Promise<AuthActionState> {
   await assertSameOrigin();
   await ensureInitialAdmin();
@@ -46,7 +46,7 @@ export async function loginAction(input: z.input<typeof loginSchema>): Promise<A
   const row = await database().prepare("SELECT id,password_hash,password_salt,status FROM users WHERE email = ? COLLATE NOCASE LIMIT 1").bind(parsed.data.email.trim().toLowerCase()).first<{ id: string; password_hash: string; password_salt: string; status: string }>();
   if (!row || row.status !== "ACTIVE" || !(await verifyPassword(parsed.data.password, row.password_salt, row.password_hash))) return { ok: false, message: "E-posta veya parola hatalı" };
   await createSession(row.id, parsed.data.remember ?? true);
-  redirect(parsed.data.returnTo);
+  return { ok: true, message: "Giriş başarılı", redirectTo: parsed.data.returnTo };
 }
 
 export async function logoutAction(): Promise<void> { await assertSameOrigin(); await destroyCurrentSession(); redirect("/"); }
