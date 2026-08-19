@@ -44,7 +44,8 @@ export async function loginAction(input: z.input<typeof loginSchema>): Promise<A
   const parsed = loginSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "E-posta veya parola hatalı" };
   const identifier = parsed.data.email.toLowerCase();
-  const email = identifier === "admin" ? initialAdminCredentials()?.email : z.string().email().safeParse(identifier).data;
+  const adminEmail = initialAdminCredentials()?.email;
+  const email = identifier === "admin" ? adminEmail : identifier === adminEmail ? undefined : z.string().email().safeParse(identifier).data;
   if (!email) return { ok: false, message: "E-posta veya parola hatalı" };
   const row = await database().prepare("SELECT id,password_hash,password_salt,status FROM users WHERE email = ? COLLATE NOCASE LIMIT 1").bind(email).first<{ id: string; password_hash: string; password_salt: string; status: string }>();
   if (!row || row.status !== "ACTIVE" || !(await verifyPassword(parsed.data.password, row.password_salt, row.password_hash))) return { ok: false, message: "E-posta veya parola hatalı" };
