@@ -1,0 +1,14 @@
+import { database, ensureDatabase } from "@/lib/database";
+
+export interface DashboardMetrics { totalUsers: number; activeProducts: number; pendingProducts: number; totalOrders: number; volumeKurus: number; revenueKurus: number; pendingPayoutKurus: number; openDisputes: number; pendingVerifications: number; refunds: number; sellerPayableKurus: number; paidSellerKurus: number }
+
+export async function getPersistentDashboardMetrics(): Promise<DashboardMetrics> {
+  await ensureDatabase();
+  const row = await database().prepare(`SELECT (SELECT COUNT(*) FROM users) AS total_users, (SELECT COUNT(*) FROM products WHERE status = 'ACTIVE') AS active_products, (SELECT COUNT(*) FROM products WHERE status = 'PENDING_REVIEW') AS pending_products, (SELECT COUNT(*) FROM orders) AS total_orders, (SELECT COALESCE(SUM(product_price_kurus),0) FROM orders) AS volume, (SELECT COALESCE(SUM(platform_fee_kurus),0) FROM orders) AS revenue, (SELECT COALESCE(SUM(seller_net_amount_kurus),0) FROM orders WHERE order_status != 'COMPLETED') AS pending_payout, (SELECT COALESCE(SUM(seller_net_amount_kurus),0) FROM orders) AS seller_payable, (SELECT COALESCE(SUM(seller_net_amount_kurus),0) FROM orders WHERE order_status = 'COMPLETED') AS paid_seller`).first<{ total_users: number; active_products: number; pending_products: number; total_orders: number; volume: number; revenue: number; pending_payout: number; seller_payable: number; paid_seller: number }>();
+  return { totalUsers: row?.total_users ?? 0, activeProducts: row?.active_products ?? 0, pendingProducts: row?.pending_products ?? 0, totalOrders: row?.total_orders ?? 0, volumeKurus: row?.volume ?? 0, revenueKurus: row?.revenue ?? 0, pendingPayoutKurus: row?.pending_payout ?? 0, openDisputes: 0, pendingVerifications: 0, refunds: 0, sellerPayableKurus: row?.seller_payable ?? 0, paidSellerKurus: row?.paid_seller ?? 0 };
+}
+
+export async function appendPersistentAudit(input: { actorId: string; action: string; targetType: string; targetId: string; oldValue?: unknown; newValue?: unknown; ipAddress?: string; userAgent?: string }): Promise<void> {
+  await ensureDatabase();
+  await database().prepare("INSERT INTO audit_logs (id,actor_id,action,target_type,target_id,old_value,new_value,ip_address,user_agent,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), input.actorId, input.action, input.targetType, input.targetId, input.oldValue === undefined ? null : JSON.stringify(input.oldValue), input.newValue === undefined ? null : JSON.stringify(input.newValue), input.ipAddress ?? null, input.userAgent ?? null, new Date().toISOString()).run();
+}

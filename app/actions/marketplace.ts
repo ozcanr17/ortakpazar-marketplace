@@ -2,12 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireUser } from "@/lib/auth";
+import { getCurrentUser, requireUser } from "@/lib/auth";
 import { DomainError } from "@/lib/domain/errors";
-import { createProduct, toggleFavorite } from "@/lib/marketplace/products";
-import { confirmDelivery, createOrder, releaseSellerPayout, shipOrder } from "@/lib/marketplace/orders";
-import { openDispute } from "@/lib/marketplace/disputes";
-import { getPublicEnv } from "@/lib/env";
 import { assertSameOrigin } from "@/lib/security/csrf";
 import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { sanitizeMessage, sanitizeText } from "@/lib/security/text";
@@ -15,6 +11,9 @@ import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { getRequestContext } from "@/lib/request";
 import { createStoragePath, validateImage } from "@/lib/security/upload";
 import { assertProductOwner } from "@/lib/marketplace/products";
+import { database, ensureDatabase } from "@/lib/database";
+import { createPersistentProduct, togglePersistentFavorite } from "@/lib/persistent-marketplace";
+import { confirmPersistentDelivery, createPersistentOrder, openPersistentDispute, shipPersistentOrder } from "@/lib/persistent-orders";
 
 export interface MarketplaceActionState { ok: boolean; message: string; id?: string }
 
@@ -25,16 +24,16 @@ export async function createProductAction(formData: FormData): Promise<Marketpla
     await assertSameOrigin();
     const user = await requireUser("/sat");
     await enforceRateLimit(`product:${user.id}`, 20, 3600, 3600);
-    const priceLira = Number(formData.get("price"));
+    const parsed = z.object({ title: z.string().min(5).max(160), description: z.string().min(20).max(10000), categoryId: z.string().uuid(), condition: z.enum(["NEW", "LIKE_NEW", "GOOD", "FAIR"]), priceLira: z.number().positive().max(1_000_000), location: z.string().min(2).max(120) }).parse({ title: String(formData.get("title") ?? ""), description: String(formData.get("description") ?? ""), categoryId: String(formData.get("categoryId") ?? ""), condition: String(formData.get("condition") ?? ""), priceLira: Number(formData.get("price")), location: String(formData.get("location") ?? "") });
     const files = formData.getAll("images").filter((value): value is File => value instanceof File && value.size > 0);
-    const product = await createProduct(user, { title: String(formData.get("title") ?? ""), description: String(formData.get("description") ?? ""), categoryId: String(formData.get("categoryId") ?? ""), condition: String(formData.get("condition") ?? "") as "NEW" | "LIKE_NEW" | "GOOD" | "FAIR", priceKurus: Math.round(priceLira * 100), location: String(formData.get("location") ?? "") }, files);
+    const productId = await createPersistentProduct(user, { title: sanitizeText(parsed.title, 160), description: sanitizeText(parsed.description, 10000), categoryId: parsed.categoryId, condition: parsed.condition, priceKurus: Math.round(parsed.priceLira * 100), location: sanitizeText(parsed.location, 120) }, files);
     revalidatePath("/urunler");
-    return { ok: true, message: "İlan incelemeye gönderildi", id: product.id };
+    return { ok: true, message: "İlan incelemeye gönderildi", id: productId };
   } catch (error) { return errorState(error); }
 }
 
 export async function toggleFavoriteAction(productId: string): Promise<MarketplaceActionState> {
-  try { await assertSameOrigin(); const user = await requireUser("/favoriler"); const active = await toggleFavorite(user, productId); revalidatePath("/favoriler"); return { ok: true, message: active ? "Favorilere eklendi" : "Favorilerden çıkarıldı" }; } catch (error) { return errorState(error); }
+  try { await assertSameOrigin(); const user = await requireUser("/favoriler"); const active = await togglePersistentFavorite(user.id, z.string().uuid().parse(productId)); revalidatePath("/favoriler"); return { ok: true, message: active ? "Favorilere eklendi" : "Favorilerden çıkarıldı" }; } catch (error) { return errorState(error); }
 }
 
 export async function purchaseAction(productId: string, legalDocumentIds: readonly string[]): Promise<MarketplaceActionState> {
@@ -42,22 +41,21 @@ export async function purchaseAction(productId: string, legalDocumentIds: readon
     await assertSameOrigin();
     const user = await requireUser(`/urun/${productId}`);
     await enforceRateLimit(`checkout:${user.id}`, 10, 900, 1800);
-    const idempotencyKey = crypto.randomUUID();
-    const orderId = await createOrder(user, productId, legalDocumentIds, idempotencyKey, `${getPublicEnv().NEXT_PUBLIC_APP_URL}/siparisler/${idempotencyKey}`);
-    return { ok: true, message: process.env.NODE_ENV === "production" ? "Ödeme sağlayıcısına yönlendiriliyorsunuz" : "Development ortamında mock ödeme tamamlandı", id: orderId };
+    const orderId = await createPersistentOrder(user, z.string().uuid().parse(productId), legalDocumentIds);
+    return { ok: true, message: "Demo ödeme korumalı akışta simüle edildi. Gerçek para hareketi yapılmadı", id: orderId };
   } catch (error) { return errorState(error); }
 }
 
 export async function shipOrderAction(input: { orderId: string; company: string; trackingNumber: string }): Promise<MarketplaceActionState> {
-  try { await assertSameOrigin(); const user = await requireUser("/siparisler"); await shipOrder(user, { ...input, shippedAt: new Date() }); revalidatePath("/siparisler"); return { ok: true, message: "Kargo bilgileri kaydedildi" }; } catch (error) { return errorState(error); }
+  try { await assertSameOrigin(); const user = await requireUser("/siparisler"); const parsed = z.object({ orderId: z.string().uuid(), company: z.string().min(2).max(100), trackingNumber: z.string().min(3).max(120) }).parse(input); await shipPersistentOrder(user.id, parsed.orderId, sanitizeText(parsed.company, 100), sanitizeText(parsed.trackingNumber, 120)); revalidatePath("/siparisler"); return { ok: true, message: "Kargo bilgileri kaydedildi" }; } catch (error) { return errorState(error); }
 }
 
 export async function confirmDeliveryAction(orderId: string): Promise<MarketplaceActionState> {
-  try { await assertSameOrigin(); const user = await requireUser("/siparisler"); await confirmDelivery(user, orderId); await releaseSellerPayout(null, orderId, `payout:${orderId}`); revalidatePath("/siparisler"); return { ok: true, message: "Teslimat onaylandı" }; } catch (error) { return errorState(error); }
+  try { await assertSameOrigin(); const user = await requireUser("/siparisler"); await confirmPersistentDelivery(user.id, z.string().uuid().parse(orderId)); revalidatePath("/siparisler"); return { ok: true, message: "Teslimat onaylandı; demo ödeme satıcıya bırakıldı" }; } catch (error) { return errorState(error); }
 }
 
 export async function openDisputeAction(input: { orderId: string; reason: string; description: string }): Promise<MarketplaceActionState> {
-  try { await assertSameOrigin(); const user = await requireUser("/siparisler"); const id = await openDispute(user, { orderId: input.orderId, reason: input.reason as "ITEM_NOT_RECEIVED", description: input.description }); revalidatePath("/siparisler"); return { ok: true, message: "Uyuşmazlık açıldı", id }; } catch (error) { return errorState(error); }
+  try { await assertSameOrigin(); const user = await requireUser("/siparisler"); const parsed = z.object({ orderId: z.string().uuid(), reason: z.enum(["ITEM_NOT_RECEIVED","ITEM_NOT_AS_DESCRIBED","DAMAGED","COUNTERFEIT","PAYMENT","RETURN","OTHER"]), description: z.string().min(20).max(3000) }).parse(input); const id = await openPersistentDispute(user.id, parsed.orderId, parsed.reason, sanitizeText(parsed.description, 3000)); revalidatePath("/siparisler"); return { ok: true, message: "Uyuşmazlık açıldı; satıcı ödemesi bloke edildi", id }; } catch (error) { return errorState(error); }
 }
 
 export async function sendMessageAction(input: { receiverId: string; orderId?: string; productId?: string; body: string }): Promise<MarketplaceActionState> {
@@ -66,21 +64,19 @@ export async function sendMessageAction(input: { receiverId: string; orderId?: s
     const user = await requireUser("/mesajlar");
     const parsed = z.object({ receiverId: z.string().uuid(), orderId: z.string().uuid().optional(), productId: z.string().uuid().optional(), body: z.string().min(1).max(2000) }).refine((value) => value.orderId || value.productId).parse(input);
     if (parsed.receiverId === user.id) throw new DomainError("INVALID_MESSAGE", "Kendinize mesaj gönderemezsiniz");
-    const client = createSupabaseAdminClient();
     let allowed = false;
     if (parsed.orderId) {
-      const { data } = await client.from("orders").select("buyer_id,seller_id").eq("id", parsed.orderId).single();
+      const data = await database().prepare("SELECT buyer_id,seller_id FROM orders WHERE id = ?").bind(parsed.orderId).first<{ buyer_id: string; seller_id: string }>();
       allowed = Boolean(data && [data.buyer_id, data.seller_id].includes(user.id) && [data.buyer_id, data.seller_id].includes(parsed.receiverId));
     } else if (parsed.productId) {
-      const { data } = await client.from("products").select("seller_id").eq("id", parsed.productId).single();
+      const data = await database().prepare("SELECT seller_id FROM products WHERE id = ?").bind(parsed.productId).first<{ seller_id: string }>();
       allowed = Boolean(data && (data.seller_id === parsed.receiverId || data.seller_id === user.id));
     }
     if (!allowed) throw new DomainError("MESSAGE_FORBIDDEN", "Bu bağlamda mesaj gönderemezsiniz");
     await enforceRateLimit(`message:${user.id}`, 30, 300, 900);
     const body = sanitizeMessage(parsed.body);
     if (!body) throw new DomainError("INVALID_MESSAGE", "Mesaj boş olamaz");
-    const { error } = await client.from("messages").insert({ sender_id: user.id, receiver_id: parsed.receiverId, order_id: parsed.orderId, product_id: parsed.productId, body });
-    if (error) throw new Error("Mesaj gönderilemedi");
+    await database().prepare("INSERT INTO messages (id,sender_id,receiver_id,order_id,product_id,body,created_at) VALUES (?,?,?,?,?,?,?)").bind(crypto.randomUUID(), user.id, parsed.receiverId, parsed.orderId ?? null, parsed.productId ?? null, body, new Date().toISOString()).run();
     revalidatePath("/mesajlar");
     return { ok: true, message: "Mesaj gönderildi" };
   } catch (error) { return errorState(error); }
@@ -91,12 +87,10 @@ export async function createReviewAction(input: { orderId: string; rating: numbe
     await assertSameOrigin();
     const user = await requireUser("/siparisler");
     const parsed = z.object({ orderId: z.string().uuid(), rating: z.number().int().min(1).max(5), comment: z.string().max(1000).optional() }).parse(input);
-    const client = createSupabaseAdminClient();
-    const { data: order } = await client.from("orders").select("buyer_id,seller_id,order_status").eq("id", parsed.orderId).single();
+    const order = await database().prepare("SELECT buyer_id,seller_id,order_status FROM orders WHERE id = ?").bind(parsed.orderId).first<{ buyer_id: string; seller_id: string; order_status: string }>();
     if (!order || order.order_status !== "COMPLETED" || ![order.buyer_id, order.seller_id].includes(user.id)) throw new DomainError("REVIEW_FORBIDDEN", "Bu sipariş değerlendirilemez");
     const reviewedUserId = order.buyer_id === user.id ? order.seller_id : order.buyer_id;
-    const { error } = await client.from("reviews").insert({ order_id: parsed.orderId, reviewer_id: user.id, reviewed_user_id: reviewedUserId, rating: parsed.rating, comment: parsed.comment ? sanitizeText(parsed.comment, 1000) : null });
-    if (error) throw new DomainError("REVIEW_EXISTS", "Bu sipariş için değerlendirme zaten yapılmış");
+    try { await database().prepare("INSERT INTO reviews (id,order_id,reviewer_id,reviewed_user_id,rating,comment,created_at) VALUES (?,?,?,?,?,?,?)").bind(crypto.randomUUID(), parsed.orderId, user.id, reviewedUserId, parsed.rating, parsed.comment ? sanitizeText(parsed.comment, 1000) : null, new Date().toISOString()).run(); } catch { throw new DomainError("REVIEW_EXISTS", "Bu sipariş için değerlendirme zaten yapılmış"); }
     return { ok: true, message: "Değerlendirmeniz kaydedildi" };
   } catch (error) { return errorState(error); }
 }
@@ -104,22 +98,18 @@ export async function createReviewAction(input: { orderId: string; rating: numbe
 export async function updateConsentAction(input: { analytics: boolean; marketing: boolean; anonymousId?: string }): Promise<MarketplaceActionState> {
   try {
     await assertSameOrigin();
-    const user = await requireUser("/ayarlar").catch(() => null);
+    await ensureDatabase();
+    const user = await getCurrentUser();
     const context = await getRequestContext();
     const anonymousId = input.anonymousId ? z.string().uuid().parse(input.anonymousId) : crypto.randomUUID();
-    const rows = [
-      { user_id: user?.id, anonymous_id: user ? null : anonymousId, category: "NECESSARY", granted: true, policy_version: "1.0", ip_address: context.ipAddress, user_agent: context.userAgent },
-      { user_id: user?.id, anonymous_id: user ? null : anonymousId, category: "ANALYTICS", granted: input.analytics, policy_version: "1.0", ip_address: context.ipAddress, user_agent: context.userAgent },
-      { user_id: user?.id, anonymous_id: user ? null : anonymousId, category: "MARKETING", granted: input.marketing, policy_version: "1.0", ip_address: context.ipAddress, user_agent: context.userAgent },
-    ];
-    const { error } = await createSupabaseAdminClient().from("consent_history").insert(rows);
-    if (error) throw new Error("Tercihler kaydedilemedi");
+    await database().prepare("INSERT INTO cookie_consents (id,user_id,anonymous_id,analytics,marketing,policy_version,ip_address,user_agent,created_at) VALUES (?,?,?,?,?,'1.0',?,?,?)")
+      .bind(crypto.randomUUID(), user?.id ?? null, user ? null : anonymousId, input.analytics ? 1 : 0, input.marketing ? 1 : 0, context.ipAddress, context.userAgent, new Date().toISOString()).run();
     return { ok: true, message: "Çerez tercihleriniz kaydedildi", id: anonymousId };
   } catch (error) { return errorState(error); }
 }
 
 export async function createDataRequestAction(type: "EXPORT" | "DELETION"): Promise<MarketplaceActionState> {
-  try { await assertSameOrigin(); const user = await requireUser("/ayarlar"); const { error } = await createSupabaseAdminClient().from("data_requests").insert({ user_id: user.id, type }); if (error) throw new Error("Talep oluşturulamadı"); return { ok: true, message: type === "EXPORT" ? "Veri dışa aktarma talebiniz alındı" : "Hesap silme talebiniz alındı" }; } catch (error) { return errorState(error); }
+  try { await assertSameOrigin(); const user = await requireUser("/ayarlar"); await database().prepare("INSERT INTO data_requests (id,user_id,type,status,created_at) VALUES (?,?,?,'OPEN',?)").bind(crypto.randomUUID(), user.id, type, new Date().toISOString()).run(); return { ok: true, message: type === "EXPORT" ? "Veri dışa aktarma talebiniz alındı" : "Hesap silme talebiniz alındı" }; } catch (error) { return errorState(error); }
 }
 
 export async function submitProductVerificationAction(productId: string, file: File): Promise<MarketplaceActionState> {

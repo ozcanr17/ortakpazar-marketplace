@@ -2,23 +2,17 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ProductActions } from "@/components/product-actions";
 import { conditionLabel, demoProducts, formatMoney, type CatalogProduct } from "@/lib/demo";
-import { getProductBySlug } from "@/lib/marketplace/products";
-import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { getPublicEnv } from "@/lib/env";
+import { getPersistentProduct } from "@/lib/persistent-marketplace";
+import { database, ensureDatabase } from "@/lib/database";
 
 export const dynamic = "force-dynamic";
 
 async function loadProduct(slug: string): Promise<CatalogProduct & { sellerId: string }> {
   const demo = demoProducts.find((product) => product.slug === slug);
   if (demo) return { ...demo, sellerId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
-  const row = await getProductBySlug(slug).catch(() => null);
-  if (!row) notFound();
-  const category = Array.isArray(row.category) ? row.category[0] : row.category;
-  const seller = Array.isArray(row.seller) ? row.seller[0] : row.seller;
-  const verification = Array.isArray(row.verification) ? row.verification[0] : row.verification;
-  const images = [...(row.images ?? [])].sort((left, right) => left.sort_order - right.sort_order);
-  const base = getPublicEnv().NEXT_PUBLIC_SUPABASE_URL;
-  return { id: row.id, sellerId: row.seller_id, title: row.title, slug: row.slug, category: category?.name ?? "Diğer", categorySlug: category?.slug ?? "diger", condition: row.condition, priceKurus: row.price_kurus, location: row.location, image: images[0] ? `${base}/storage/v1/object/public/product-images/${images[0].storage_path}` : "/globe.svg", seller: seller?.display_name ?? "OrtakPazar üyesi", rating: (seller?.rating_basis_points ?? 0) / 100, verified: verification?.status === "VERIFIED", description: row.description };
+  const product = await getPersistentProduct(slug).catch(() => null);
+  if (!product) notFound();
+  return product;
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
@@ -27,7 +21,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   return { title: product.title, description: product.description.slice(0, 150), openGraph: { title: product.title, description: product.description.slice(0, 150), images: [{ url: product.image }] }, twitter: { title: product.title, description: product.description.slice(0, 150), images: [product.image] } };
 }
 
-async function getCheckoutDocuments() { try { const { data } = await createSupabaseAdminClient().from("legal_documents").select("id,title,type").in("type", ["DISTANCE_SALES_INFORMATION", "DISTANCE_SALES_AGREEMENT_TEMPLATE"]).eq("active", true); return data ?? []; } catch { return []; } }
+async function getCheckoutDocuments() { await ensureDatabase(); return (await database().prepare("SELECT id,title,type FROM legal_documents WHERE active = 1 AND type IN ('DISTANCE_SALES_INFORMATION','DISTANCE_SALES_AGREEMENT_TEMPLATE')").all<{ id: string; title: string; type: string }>()).results; }
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params; const product = await loadProduct(slug);
