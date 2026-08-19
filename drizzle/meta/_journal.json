@@ -1,5 +1,27 @@
 {
   "version": "7",
-  "dialect": "sqlite",
-  "entries": []
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1787114188482,
+      "tag": "0000_wandering_cerebro",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787114218777,
+      "tag": "0001_cool_sasquatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787114300000,
+      "tag": "0002_security_workflows",
+      "breakpoints": true
+    }
+  ]
 }

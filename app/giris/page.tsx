@@ -1,0 +1,3 @@
+import { LoginForm } from "@/components/auth-forms";
+
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ returnTo?: string; error?: string }> }) { const params = await searchParams; return <div className="auth-page"><div className="auth-card"><span className="kicker dark">TEKRAR HOŞ GELDİN</span><h1>Hesabına giriş yap</h1><p>Siparişlerini, ilanlarını ve mesajlarını güvenle yönet.</p>{params.error && <p className="form-message">Bağlantı geçersiz veya süresi dolmuş.</p>}<LoginForm returnTo={params.returnTo}/></div><div className="auth-visual"><h2>Alışverişte güven,<br/>her adımda şeffaflık.</h2><ul><li>✓ Güvenli ödeme mimarisi</li><li>✓ İlan doğrulama sistemi</li><li>✓ Uyuşmazlık desteği</li></ul></div></div>; }

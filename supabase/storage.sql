@@ -1,0 +1,3 @@
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types) VALUES ('product-images', 'product-images', true, 8388608, ARRAY['image/jpeg','image/png','image/webp']) ON CONFLICT (id) DO UPDATE SET file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types) VALUES ('private-evidence', 'private-evidence', false, 8388608, ARRAY['image/jpeg','image/png','image/webp','application/pdf']) ON CONFLICT (id) DO UPDATE SET file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+CREATE POLICY product_images_public_read ON storage.objects FOR SELECT USING (bucket_id = 'product-images');

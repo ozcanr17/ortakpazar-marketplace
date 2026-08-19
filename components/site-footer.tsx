@@ -1,0 +1,5 @@
+import Link from "next/link";
+
+export function SiteFooter() {
+  return <footer className="market-footer"><div className="footer-main"><div><Link href="/" className="brand light"><i>O</i><b>ORTAK</b><small>PAZAR</small></Link><p>İnsanların güvenle alışveriş yaptığı, sürdürülebilir Türkiye pazarı.</p></div><div><b>Keşfet</b><Link href="/urunler">Tüm ürünler</Link><Link href="/sat">Ürün sat</Link><Link href="/favoriler">Favoriler</Link></div><div><b>Destek</b><Link href="/nasil-calisir">Nasıl çalışır?</Link><Link href="/guvenli-alisveris">Alıcı koruması</Link><Link href="/yardim">Yardım merkezi</Link></div><div><b>Hukuki</b><Link href="/hukuki/kullanici-sozlesmesi">Kullanıcı sözleşmesi</Link><Link href="/hukuki/kvkk-aydinlatma">KVKK aydınlatma</Link><Link href="/hukuki/cerez-politikasi">Çerez politikası</Link></div></div><div className="footer-bottom"><span>© 2026 OrtakPazar</span><span>Gerçek ödeme production ortamında lisanslı ödeme kuruluşu entegrasyonu olmadan kapalıdır.</span></div></footer>;
+}

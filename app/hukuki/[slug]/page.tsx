@@ -1,0 +1,10 @@
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { createSupabaseAdminClient } from "@/lib/supabase/server";
+
+export const dynamic = "force-dynamic";
+const slugTypes: Record<string, string> = { "kullanici-sozlesmesi": "USER_AGREEMENT", "pazaryeri-sozlesmesi": "MARKETPLACE_AGREEMENT", "satici-sozlesmesi": "SELLER_AGREEMENT", "gizlilik-bildirimi": "PRIVACY_NOTICE", "kvkk-aydinlatma": "KVKK_NOTICE", "cerez-politikasi": "COOKIE_POLICY", "mesafeli-satis": "DISTANCE_SALES_INFORMATION", "iade-politikasi": "RETURN_REFUND_POLICY", "yasakli-urunler": "PROHIBITED_PRODUCTS_POLICY", "uyusmazlik-politikasi": "DISPUTE_POLICY", "komisyon-politikasi": "COMMISSION_POLICY" };
+
+async function loadDocument(slug: string) { const type = slugTypes[slug]; if (!type) return null; const { data } = await createSupabaseAdminClient().from("legal_documents").select("title,version,content,published_at,requires_legal_review").eq("type", type).eq("active", true).single(); return data; }
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> { const { slug } = await params; const document = await loadDocument(slug).catch(() => null); return { title: document?.title ?? "Hukuki metin", description: document ? `${document.title} sürüm ${document.version}` : "OrtakPazar hukuki metni" }; }
+export default async function LegalPage({ params }: { params: Promise<{ slug: string }> }) { const { slug } = await params; const document = await loadDocument(slug).catch(() => null); if (!document) notFound(); return <article className="legal-page"><span className="kicker dark">HUKUKİ METİN</span><h1>{document.title}</h1><div className="legal-meta">Sürüm {document.version} · {document.published_at ? new Date(document.published_at).toLocaleDateString("tr-TR") : "Yayınlanmadı"}</div>{document.requires_legal_review && <div className="legal-warning">Bu metin production öncesinde yetkin bir hukuk danışmanı tarafından doğrulanmalıdır. Kesin hukuki uygunluk beyanı değildir.</div>}<div className="legal-content">{document.content}</div></article>; }

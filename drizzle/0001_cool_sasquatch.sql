@@ -1,0 +1,1 @@
+ALTER TABLE "orders" ADD COLUMN "buyer_confirmed_at" timestamp with time zone;
