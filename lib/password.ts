@@ -1,4 +1,4 @@
-const iterations = 310_000;
+const iterations = 100_000;
 
 const bytesToBase64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
 const base64ToBytes = (value: string) => Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
