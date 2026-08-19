@@ -1,100 +1,109 @@
-# vinext-starter
+# OrtakPazar
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Türkiye pazarına yönelik, alıcı ile satıcı arasında güvenli işlem akışı sağlayan C2C/P2P marketplace MVP.
 
-## Prerequisites
+Canlı demo: https://nova-outlet-tr.astgm67.chatgpt.site
 
-- Node.js `>=22.13.0`
+## Özellikler
 
-## Quick Start
+- E-posta ve şifre ile kayıt, giriş, çıkış ve oturum yönetimi
+- Fotoğraflı ürün ilanı oluşturma ve yönetici onay süreci
+- Arama, kategori ve kondisyon filtreleri
+- Favoriler ve ürün/sipariş bağlamında mesajlaşma
+- Demo ödeme ve escrow benzeri sipariş durum akışı
+- Kargo firması ve takip numarası girişi
+- Teslimat onayı, uyuşmazlık ve değerlendirme
+- Kullanıcı, mağaza, ürün, sipariş, finans, hukuk ve uyum yönetimi
+- Çerez tercihleri ve onay geçmişi
+- Audit log, rate limiting, CSRF, XSS ve nesne bazlı yetkilendirme
+
+Gerçek ödeme kapalıdır. `MockEscrowPaymentProvider` yalnızca geliştirme ve sunum amacıyla kullanılır. Lisanslı ödeme kuruluşu entegrasyonu tamamlanmadan gerçek para akışı etkinleştirilmemelidir.
+
+## Teknoloji
+
+- Next.js ve React
+- TypeScript strict
+- vinext ve Cloudflare Workers
+- Cloudflare D1 ve R2
+- Zod
+- Drizzle ORM/PostgreSQL hazırlığı
+- Node.js test runner
+
+## Projeyi klonlama
 
 ```bash
+git clone https://github.com/ozcanr17/ortakpazar-marketplace.git
+cd ortakpazar-marketplace
 npm install
+cp .env.example .env
 npm run dev
+```
+
+Uygulama varsayılan olarak `http://localhost:3000` adresinde açılır. Node.js `22.13.0` veya daha yeni bir sürüm kullanın.
+
+## Ortam değişkenleri
+
+`.env.example` dosyasını `.env` olarak kopyalayın ve gerçek değerleri yalnızca yerel veya deployment ortamında tanımlayın.
+
+```env
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+PAYMENT_PROVIDER=mock
+INITIAL_ADMIN_EMAIL=
+INITIAL_ADMIN_PASSWORD=
+TEST_USER_EMAIL=
+TEST_USER_PASSWORD=
+```
+
+Admin ve test kullanıcısı yalnızca environment variable üzerinden oluşturulur. Gerçek şifreleri repository'ye eklemeyin.
+
+## Kontroller
+
+```bash
+npm run typecheck
+npm run lint
+npm test
 npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+Tüm kontrolleri tek komutla çalıştırmak için:
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
-
-The user ID is stable for the same user on the same Site and different across Sites. Email and name are intended for display or contact purposes.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npm run verify
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+## Veri ve deployment
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+`.openai/hosting.json`, Cloudflare D1 için `DB` ve R2 için `UPLOADS` binding adlarını tanımlar. Uygulama ilk çalıştırmada şemayı ve demo verilerini idempotent biçimde hazırlar.
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+Yeni bir production ortamında:
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+1. D1 veritabanı ve R2 bucket oluşturun.
+2. `DB` ve `UPLOADS` bindinglerini deployment ortamına bağlayın.
+3. Admin ve test kullanıcı değişkenlerini deployment secret/env ayarlarında tanımlayın.
+4. `npm run verify` komutunu çalıştırın.
+5. Build çıktısını Cloudflare Workers veya uyumlu vinext altyapısına deploy edin.
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+Supabase/PostgreSQL seçeneğine geçilecekse `drizzle/`, `supabase/` ve provider katmanları başlangıç noktası olarak kullanılabilir. Ödeme ve kargo sağlayıcısına özel kod iş mantığına yayılmamalıdır.
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+## Geliştirmeye devam etme
 
-## Useful Commands
+Yeni bir çalışma dalı açın:
 
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+```bash
+git checkout -b feature/ozellik-adi
+```
 
-## Learn More
+Değişiklikten sonra kalite kontrollerini çalıştırın:
 
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+```bash
+npm run verify
+git add .
+git commit -m "Add feature description"
+git push -u origin feature/ozellik-adi
+```
+
+Finansal durum geçişlerini yalnızca sunucuda ve transaction-safe biçimde uygulayın. Tutarları kuruş cinsinden integer saklayın; ödeme ve payout işlemlerinde idempotency kullanın. Hukuki metinleri kod içine sabitlemeyin ve production öncesinde hukuk danışmanı onayı alın.
+
+## Dokümantasyon
+
+Müşteri tanıtım dokümanı: [`output/pdf/OrtakPazar-Proje-Tanitim-Dokumani.pdf`](output/pdf/OrtakPazar-Proje-Tanitim-Dokumani.pdf)
