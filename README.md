@@ -2,7 +2,9 @@
 
 Türkiye pazarına yönelik, alıcı ile satıcı arasında güvenli işlem akışı sağlayan C2C/P2P marketplace MVP.
 
-Canlı demo: https://nova-outlet-tr.astgm67.chatgpt.site
+Kaynak kodun resmi adresi: https://github.com/ozcanr17/ortakpazar-marketplace
+
+Eski `nova-outlet-tr.astgm67.chatgpt.site` adresi önceki barındırma ortamına aittir. Teslim sonrası yayın ve geliştirme için GitHub deposundaki güncel kaynak kod esas alınmalıdır.
 
 ## Özellikler
 
@@ -82,6 +84,8 @@ Yeni bir production ortamında:
 3. Admin ve test kullanıcı değişkenlerini deployment secret/env ayarlarında tanımlayın.
 4. `npm run verify` komutunu çalıştırın.
 5. Build çıktısını Cloudflare Workers veya uyumlu vinext altyapısına deploy edin.
+
+Cloudflare deployment için adım adım rehber [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) dosyasındadır. Teslim bilgileri için [docs/HANDOFF.md](docs/HANDOFF.md) dosyasını kullanın.
 
 Supabase/PostgreSQL seçeneğine geçilecekse `drizzle/`, `supabase/` ve provider katmanları başlangıç noktası olarak kullanılabilir. Ödeme ve kargo sağlayıcısına özel kod iş mantığına yayılmamalıdır.
 
